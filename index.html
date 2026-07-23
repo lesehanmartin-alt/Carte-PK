@@ -15,12 +15,19 @@
   #map { height: 100%; }
   .topbar {
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    z-index: 1000; background: #fff; padding: 8px 14px; border-radius: 8px;
+    z-index: 1000; background: #fff; padding: 6px 10px; border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,.3); display: flex; flex-wrap: wrap;
-    gap: 6px 10px; align-items: center; justify-content: center;
+    gap: 4px 8px; align-items: center; justify-content: center;
     max-width: 92%;
   }
-  #status { font-size: .85em; color: #555; }
+  #toast {
+    position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%);
+    z-index: 2000; background: rgba(25,25,30,.88); color: #fff;
+    padding: 8px 16px; border-radius: 20px; font-size: .85em;
+    max-width: 86%; text-align: center; pointer-events: none;
+    opacity: 0; transition: opacity .3s;
+  }
+  #toast.show { opacity: 1; }
   .legend {
     position: absolute; bottom: 20px; left: 10px; z-index: 1000;
     background: #fff; padding: 8px 12px; border-radius: 8px;
@@ -68,7 +75,7 @@
 <body>
 <div id="map"></div>
 <div class="topbar">
-  <b>🇫🇷 Autoroutes, RN, RD &amp; PK</b>
+  <b>🇫🇷 Routes &amp; PK</b>
   <span class="searchbar">
     <input id="dept" placeholder="Dépt" maxlength="3" autocomplete="off">
     <input id="route" placeholder="Route" autocomplete="off">
@@ -76,9 +83,8 @@
     <button id="search" title="Rechercher la route dans le département">🔍</button>
     <button id="clearSearch" title="Effacer la recherche">✕</button>
   </span>
-  <button id="reload">Charger la zone visible</button>
-  <span id="status">Zoomez sur une zone (zoom ≥ 12) — le chargement est automatique.</span>
 </div>
+<div id="toast"></div>
 <div class="legend" id="legend">
   <button id="legendToggle">🗺️ Légende ▾</button>
   <div id="legendBody">
@@ -133,11 +139,16 @@ const canvas = L.canvas();
 const rdLayer = L.layerGroup().addTo(map);
 const pkLayer = L.layerGroup().addTo(map);
 const searchLayer = L.layerGroup().addTo(map); // route recherchée, épinglée au-dessus
-const statusEl = document.getElementById('status');
+const toastEl = document.getElementById('toast');
 let searchInfo = ''; // rappel de la recherche active, préfixé à tous les statuts
+let toastTimer = null;
 
+// Notification discrète en bas de carte, qui s'efface toute seule.
 function setStatus(msg) {
-  statusEl.textContent = (searchInfo ? searchInfo + ' — ' : '') + msg;
+  toastEl.textContent = (searchInfo ? searchInfo + ' — ' : '') + msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 5000);
 }
 
 const WFS = 'https://data.geopf.fr/wfs/ows';
@@ -369,11 +380,6 @@ function scheduleLoad() {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => loadVisibleArea(false), 600);
 }
-
-document.getElementById('reload').addEventListener('click', () => {
-  clearTimeout(debounceTimer);
-  loadVisibleArea(true);
-});
 
 map.on('popupopen', () => { popupIsOpen = true; });
 map.on('popupclose', () => {
