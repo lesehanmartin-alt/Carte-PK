@@ -49,8 +49,14 @@
     border: 1px solid #888; border-radius: 6px; padding: 4px 6px;
     font-size: .95em; width: 3.2em;
   }
-  .searchbar input#route { width: 5.5em; }
+  .searchbar input#route { width: 5em; }
+  .searchbar input#pr { width: 3em; }
   #clearSearch { display: none; }
+  #legendToggle {
+    display: block; width: 100%; text-align: left; border: none;
+    background: transparent; font-weight: 600; padding: 2px 0;
+  }
+  .legend.collapsed #legendBody { display: none; }
   button { cursor: pointer; padding: 4px 10px; border-radius: 6px; border: 1px solid #888; background: #f5f5f5; }
   button:hover { background: #e8e8e8; }
   @media (max-width: 640px) {
@@ -66,21 +72,25 @@
   <span class="searchbar">
     <input id="dept" placeholder="Dépt" maxlength="3" autocomplete="off">
     <input id="route" placeholder="Route" autocomplete="off">
+    <input id="pr" placeholder="PR" maxlength="4" autocomplete="off" title="N° de PR (facultatif)">
     <button id="search" title="Rechercher la route dans le département">🔍</button>
     <button id="clearSearch" title="Effacer la recherche">✕</button>
   </span>
   <button id="reload">Charger la zone visible</button>
   <span id="status">Zoomez sur une zone (zoom ≥ 12) — le chargement est automatique.</span>
 </div>
-<div class="legend">
-  <div><span class="swatch" style="background:#2e6fb7"></span>Autoroute (A…, périph., M6/M7…)</div>
-  <div><span class="swatch" style="background:#c0392b"></span>Nationale (N…, T… en Corse)</div>
-  <div><span class="swatch" style="background:#e6b800"></span>Départementale (D…)</div>
-  <div><span class="dot"></span>Point kilométrique (zoom 12, couleur selon la classe)</div>
-  <div><span class="pk-icon" style="display:inline-block;">D19 · PK 12</span> PK détaillé (zoom ≥ 13)</div>
-  <div><span class="pk-icon" style="display:inline-block;">D19 · FIN</span> Fin de la route</div>
-  <div style="color:#777;font-size:.9em">Données : IGN BDTOPO® (PR fournis par les Départements)</div>
-  <div style="color:#999;font-size:.85em">Usage interne — diffusion interdite sans autorisation</div>
+<div class="legend" id="legend">
+  <button id="legendToggle">🗺️ Légende ▾</button>
+  <div id="legendBody">
+    <div><span class="swatch" style="background:#2e6fb7"></span>Autoroute (A…, périph., M6/M7…)</div>
+    <div><span class="swatch" style="background:#c0392b"></span>Nationale (N…, T… en Corse)</div>
+    <div><span class="swatch" style="background:#e6b800"></span>Départementale (D…)</div>
+    <div><span class="dot"></span>Point kilométrique (zoom 12, couleur selon la classe)</div>
+    <div><span class="pk-icon" style="display:inline-block;">D19 · PK 12</span> PK détaillé (zoom ≥ 13)</div>
+    <div><span class="pk-icon" style="display:inline-block;">D19 · FIN</span> Fin de la route</div>
+    <div style="color:#777;font-size:.9em">Données : IGN BDTOPO® (PR fournis par les Départements)</div>
+    <div style="color:#999;font-size:.85em">Usage interne — diffusion interdite sans autorisation</div>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -245,12 +255,15 @@ function renderRD() {
 }
 
 function pkPopupHtml(p, lat, lon) {
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${lat.toFixed(6)},${lon.toFixed(6)}`;
+  // window.open + repli sur la navigation classique : certains téléphones en
+  // mode « application installée » ignorent silencieusement target="_blank".
   return `<b>${p.route} — ${p.type_de_pr === 'PRF' ? 'Fin de route' : 'PR ' + p.numero}</b><br>` +
     `Abscisse : ${p.abscisse != null ? p.abscisse + ' m' : '—'}<br>` +
     `Côté : ${p.cote || '—'}<br>` +
     `Département : ${p.code_insee_du_departement || '—'} (${p.gestionnaire || '—'})<br>` +
-    `<a class="gmaps-link" target="_blank" rel="noopener"` +
-    ` href="https://www.google.com/maps/dir/?api=1&destination=${lat.toFixed(6)}%2C${lon.toFixed(6)}">` +
+    `<a class="gmaps-link" href="${url}" target="_blank" rel="noopener"` +
+    ` onclick="return !window.open(this.href, '_blank')">` +
     `🧭 Itinéraire Google Maps</a>`;
 }
 
@@ -368,6 +381,7 @@ map.on('zoomend', () => {
 let searchController = null;
 const deptInput = document.getElementById('dept');
 const routeInput = document.getElementById('route');
+const prInput = document.getElementById('pr');
 const clearBtn = document.getElementById('clearSearch');
 
 function normDept(s) {
@@ -380,11 +394,20 @@ function normRoute(s) {
 }
 const cqlEsc = v => v.replace(/'/g, "''");
 
+// Compare un n° de PR saisi à celui d'un point : « 07 » = « 7 », « fin » = fin de route.
+function prMatches(wanted, p) {
+  const w = wanted.trim().toUpperCase();
+  if (p.type_de_pr === 'PRF') return w === 'FIN' || w === String(parseInt(p.numero, 10));
+  if (/^\d+$/.test(w) && /^\d+$/.test(p.numero)) return parseInt(w, 10) === parseInt(p.numero, 10);
+  return w === String(p.numero).toUpperCase();
+}
+
 async function searchRoute() {
   const dept = normDept(deptInput.value);
   const route = normRoute(routeInput.value);
+  const prWanted = prInput.value.trim();
   if (!dept || !route) {
-    setStatus('Indiquez un département (ex. 78) et une route (ex. D912, N10, A13).');
+    setStatus('Indiquez un département (ex. 78) et une route (ex. D912, N10, A13) — PR facultatif.');
     return;
   }
   if (searchController) searchController.abort();
@@ -418,11 +441,15 @@ async function searchRoute() {
           .bindTooltip(route, { sticky: true }).addTo(searchLayer);
       }
     }
-    for (const f of dedupePR(pr.features)) {
+    const dedupedPR = dedupePR(pr.features);
+    let targetMarker = null;
+    const prNums = [];
+    for (const f of dedupedPR) {
       const p = f.properties;
       const [lon, lat] = f.geometry.coordinates;
       bounds.extend([lat, lon]);
-      L.marker([lat, lon], {
+      if (/^\d+$/.test(p.numero)) prNums.push(parseInt(p.numero, 10));
+      const m = L.marker([lat, lon], {
         icon: L.divIcon({
           className: 'pk-icon pk-s',
           html: p.type_de_pr === 'PRF' ? 'FIN' : 'PK ' + p.numero,
@@ -430,18 +457,31 @@ async function searchRoute() {
         }),
         zIndexOffset: 1000
       }).bindPopup(pkPopupHtml(p, lat, lon)).addTo(searchLayer);
+      if (prWanted && !targetMarker && prMatches(prWanted, p)) targetMarker = m;
     }
 
     if (!bounds.isValid()) {
       setStatus(`${route} introuvable dans le département ${dept}. Vérifiez le numéro (ex. D912, N10, A13, T20).`);
       return;
     }
-    searchInfo = `${route} (${dept}) : ${rd.features.length} tronçons, ` +
-      `${dedupePR(pr.features).length} PK en violet`;
+    searchInfo = `${route} (${dept}) : ${rd.features.length} tronçons, ${dedupedPR.length} PK en violet`;
     clearBtn.style.display = 'inline-block';
-    map.fitBounds(bounds.pad(0.1));
-    if (map.getZoom() >= MIN_ZOOM) updateStatus();
-    else setStatus('Zoomez (≥ ' + MIN_ZOOM + ') pour afficher les autres routes autour.');
+
+    if (targetMarker) {
+      // PR précis demandé : on centre dessus et on ouvre sa fiche (avec l'itinéraire).
+      searchInfo = `${route} (${dept}) — PR ${prWanted.toUpperCase()}`;
+      map.setView(targetMarker.getLatLng(), Math.max(map.getZoom(), 14));
+      targetMarker.openPopup();
+      updateStatus();
+    } else if (prWanted) {
+      const dispo = prNums.length ? ` PR existants : ${Math.min(...prNums)} à ${Math.max(...prNums)}.` : '';
+      map.fitBounds(bounds.pad(0.1));
+      setStatus(`PR ${prWanted} introuvable sur la ${route} (${dept}).${dispo}`);
+    } else {
+      map.fitBounds(bounds.pad(0.1));
+      if (map.getZoom() >= MIN_ZOOM) updateStatus();
+      else setStatus('Zoomez (≥ ' + MIN_ZOOM + ') pour afficher les autres routes autour.');
+    }
   } catch (e) {
     if (e.name === 'AbortError') return;
     setStatus('Erreur : ' + e.message + ' — réessayez.');
@@ -452,15 +492,30 @@ function clearSearch() {
   if (searchController) searchController.abort();
   searchLayer.clearLayers();
   searchInfo = '';
+  prInput.value = '';
   clearBtn.style.display = 'none';
   updateStatus();
 }
 
 document.getElementById('search').addEventListener('click', searchRoute);
 clearBtn.addEventListener('click', clearSearch);
-for (const el of [deptInput, routeInput]) {
+for (const el of [deptInput, routeInput, prInput]) {
   el.addEventListener('keydown', e => { if (e.key === 'Enter') searchRoute(); });
 }
+
+// ---- Légende repliable -----------------------------------------------------
+const legendEl = document.getElementById('legend');
+const legendToggle = document.getElementById('legendToggle');
+function setLegend(collapsed) {
+  legendEl.classList.toggle('collapsed', collapsed);
+  legendToggle.textContent = collapsed ? '🗺️ Légende ▸' : '🗺️ Légende ▾';
+  try { localStorage.setItem('carte-rd-legende', collapsed ? '1' : '0'); } catch (e) {}
+}
+legendToggle.addEventListener('click', () => setLegend(!legendEl.classList.contains('collapsed')));
+let legendPref = null;
+try { legendPref = localStorage.getItem('carte-rd-legende'); } catch (e) {}
+// Par défaut : repliée sur petit écran, dépliée sur grand.
+setLegend(legendPref !== null ? legendPref === '1' : window.innerWidth < 640);
 
 // ---- Mode application (PWA) ------------------------------------------------
 if ('serviceWorker' in navigator) {
