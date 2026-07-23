@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2e6fb7">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Carte routière de France — Autoroutes, Nationales, Départementales & PK</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+  #map { height: 100%; }
+  .topbar {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; background: #fff; padding: 8px 14px; border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3); display: flex; flex-wrap: wrap;
+    gap: 6px 10px; align-items: center; justify-content: center;
+    max-width: 92%;
+  }
+  #status { font-size: .85em; color: #555; }
+  .legend {
+    position: absolute; bottom: 20px; left: 10px; z-index: 1000;
+    background: #fff; padding: 8px 12px; border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.3); font-size: .85em; line-height: 1.9;
+    max-width: 260px;
+  }
+  .swatch { display: inline-block; width: 22px; height: 4px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #ffd400; border: 1.5px solid #333; vertical-align: middle; margin: 0 8px 0 3px; }
+  .pk-icon {
+    background: #ffd400; border: 1.5px solid #333; border-radius: 4px;
+    font-size: 10px; font-weight: bold; text-align: center; line-height: 15px;
+    white-space: nowrap; color: #000; box-shadow: 0 1px 3px rgba(0,0,0,.4);
+    padding: 0 3px; width: auto !important; height: auto !important;
+  }
+  .pk-icon.pk-a { background: #2e6fb7; color: #fff; border-color: #1a3d66; }
+  .pk-icon.pk-n { background: #c0392b; color: #fff; border-color: #6e1f16; }
+  .pk-icon.pk-s { background: #d63384; color: #fff; border-color: #7a1148; font-size: 11px; }
+  .gmaps-link {
+    display: inline-block; margin-top: 6px; padding: 4px 10px;
+    background: #1a73e8; color: #fff !important; border-radius: 6px;
+    text-decoration: none; font-weight: 600;
+  }
+  .gmaps-link:hover { background: #1557b0; }
+  .searchbar { display: flex; gap: 6px; align-items: center; }
+  .searchbar input {
+    border: 1px solid #888; border-radius: 6px; padding: 4px 6px;
+    font-size: .95em; width: 3.2em;
+  }
+  .searchbar input#route { width: 5.5em; }
+  #clearSearch { display: none; }
+  button { cursor: pointer; padding: 4px 10px; border-radius: 6px; border: 1px solid #888; background: #f5f5f5; }
+  button:hover { background: #e8e8e8; }
+  @media (max-width: 640px) {
+    .topbar { font-size: .9em; padding: 6px 10px; }
+    .legend { font-size: .78em; max-width: 210px; }
+  }
+  #gate {
+    position: fixed; inset: 0; z-index: 3000; background: #2e6fb7;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .gate-card {
+    background: #fff; border-radius: 12px; padding: 28px 26px; max-width: 320px;
+    text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.35);
+  }
+  .gate-card h1 { font-size: 1.15em; margin: 0 0 4px; }
+  .gate-card p { color: #666; font-size: .85em; margin: 6px 0 14px; }
+  .gate-card input {
+    width: 100%; box-sizing: border-box; padding: 10px; font-size: 1.1em;
+    text-align: center; border: 1px solid #888; border-radius: 8px;
+    text-transform: uppercase;
+  }
+  .gate-card button {
+    width: 100%; margin-top: 10px; padding: 10px; font-size: 1em;
+    background: #2e6fb7; color: #fff; border: none;
+  }
+  .gate-card button:hover { background: #245a94; }
+  #gateError { color: #c0392b; font-size: .85em; min-height: 1.2em; margin-top: 8px; }
+  .gate-notice { font-size: .75em; color: #999; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div id="gate">
+  <div class="gate-card">
+    <h1>🇫🇷 Carte routière &amp; PK</h1>
+    <p>Application à usage interne.<br>Saisissez le code d'accès.</p>
+    <input id="gateCode" placeholder="Code d'accès" autocomplete="off">
+    <button id="gateBtn">Entrer</button>
+    <div id="gateError"></div>
+    <div class="gate-notice">Usage interne — diffusion interdite<br>sans autorisation.</div>
+  </div>
+</div>
+<div id="map"></div>
+<div class="topbar">
+  <b>🇫🇷 Autoroutes, RN, RD &amp; PK</b>
+  <span class="searchbar">
+    <input id="dept" placeholder="Dépt" maxlength="3" autocomplete="off">
+    <input id="route" placeholder="Route" autocomplete="off">
+    <button id="search" title="Rechercher la route dans le département">🔍</button>
+    <button id="clearSearch" title="Effacer la recherche">✕</button>
+  </span>
+  <button id="reload">Charger la zone visible</button>
+  <span id="status">Zoomez sur une zone (zoom ≥ 12) — le chargement est automatique.</span>
+</div>
+<div class="legend">
+  <div><span class="swatch" style="background:#2e6fb7"></span>Autoroute (A…, périph., M6/M7…)</div>
+  <div><span class="swatch" style="background:#c0392b"></span>Nationale (N…, T… en Corse)</div>
+  <div><span class="swatch" style="background:#e6b800"></span>Départementale (D…)</div>
+  <div><span class="dot"></span>Point kilométrique (zoom 12, couleur selon la classe)</div>
+  <div><span class="pk-icon" style="display:inline-block;">D19 · PK 12</span> PK détaillé (zoom ≥ 13)</div>
+  <div><span class="pk-icon" style="display:inline-block;">D19 · FIN</span> Fin de la route</div>
+  <div style="color:#777;font-size:.9em">Données : IGN BDTOPO® (PR fournis par les Départements)</div>
+  <div style="color:#999;font-size:.85em">Usage interne — diffusion interdite sans autorisation</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ---- Code d'accès (dissuasif : à remplacer par Cloudflare Access pour un
+// contrôle réel par liste d'e-mails) --------------------------------------
+(function () {
+  const GATE_HASH = 'c23bd115'; // empreinte du code, non réversible
+  const gate = document.getElementById('gate');
+  function hash(s) {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((Math.imul(h, 33)) ^ s.charCodeAt(i)) >>> 0;
+    return h.toString(16);
+  }
+  function tryCode() {
+    const v = document.getElementById('gateCode').value.trim().toUpperCase();
+    if (hash(v) === GATE_HASH) {
+      try { localStorage.setItem('carte-rd-acces', GATE_HASH); } catch (e) {}
+      gate.remove();
+      map.invalidateSize();
+    } else {
+      document.getElementById('gateError').textContent = 'Code incorrect.';
+    }
+  }
+  try {
+    if (localStorage.getItem('carte-rd-acces') === GATE_HASH) { gate.remove(); return; }
+  } catch (e) {}
+  document.getElementById('gateBtn').addEventListener('click', tryCode);
+  document.getElementById('gateCode').addEventListener('keydown', e => {
+    if (e.key === 'Enter') tryCode();
+  });
+})();
+</script>
+<script>
+const MIN_ZOOM = 12;    // seuil unique de chargement (bouton et auto)
+const LABEL_ZOOM = 13;  // en dessous : pastilles ; à partir de : étiquettes détaillées
+const PAGE_SIZE = 5000;
+const MAX_PAGES = 2;    // au-delà de 10 000 features par couche : affichage partiel signalé
+
+const map = L.map('map', { preferCanvas: true, zoomControl: false }).setView([46.6, 2.5], 6);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+// Si la page se charge dans un onglet masqué, Leaflet mesure une taille nulle :
+// on recalcule dès que la fenêtre redevient visible ou change de taille.
+window.addEventListener('resize', () => map.invalidateSize());
+document.addEventListener('visibilitychange', () => map.invalidateSize());
+setTimeout(() => map.invalidateSize(), 300);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | Routes &amp; PR : <a href="https://geoservices.ign.fr/bdtopo">IGN BDTOPO®</a>'
+}).addTo(map);
+
+const canvas = L.canvas();
+const rdLayer = L.layerGroup().addTo(map);
+const pkLayer = L.layerGroup().addTo(map);
+const searchLayer = L.layerGroup().addTo(map); // route recherchée, épinglée au-dessus
+const statusEl = document.getElementById('status');
+let searchInfo = ''; // rappel de la recherche active, préfixé à tous les statuts
+
+function setStatus(msg) {
+  statusEl.textContent = (searchInfo ? searchInfo + ' — ' : '') + msg;
+}
+
+const WFS = 'https://data.geopf.fr/wfs/ows';
+// Le joker _ évite tout aléa d'encodage de l'accent ; le suffixe % couvre
+// les variantes « …/Route nommée ». La clause « Route intercommunale »
+// récupère les ex-RD et ex-autoroutes transférées aux métropoles
+// (ex. Métropole de Lyon : D306…, M6/M7) qui gardent leur numéro.
+// La clause « nature autoroutière » récupère le boulevard périphérique de Paris
+// (classement 'Route nommée' pur, numéro NULL) et les bretelles non classées.
+const ROADS_FILTER = "(cpx_classement_administratif LIKE 'D_partementale%'" +
+  " OR cpx_classement_administratif LIKE 'Autoroute%'" +
+  " OR cpx_classement_administratif LIKE 'Nationale%'" +
+  " OR (cpx_classement_administratif LIKE 'Route intercommunale%'" +
+  " AND (cpx_numero LIKE 'D%' OR cpx_numero LIKE 'M%'))" +
+  " OR (nature='Type autoroutier'" +
+  " AND (cpx_classement_administratif LIKE 'Route nomm_e' OR cpx_classement_administratif IS NULL)))";
+// C01/C02 = périphérique parisien ; T = territoriales corses (ex-nationales) ;
+// « Voie Sacrée » = statut particulier dans la Meuse.
+const PR_FILTER = "(route LIKE 'D%' OR route LIKE 'A%' OR route LIKE 'N%' OR route LIKE 'M%'" +
+  " OR route LIKE 'T%' OR route LIKE 'C0%' OR route LIKE 'Voie Sacr_e%')" +
+  " AND type_de_pr IN ('PR','PR0','PRF')";
+
+// Ex-autoroutes transférées aux métropoles, restées de type autoroutier.
+const M_AUTOROUTES = new Set(['M6', 'M7', 'M35', 'M350', 'M351']);
+
+// Classe d'affichage d'un tronçon : le classement administratif fait foi
+// (il couvre P524, T20… classés Nationale) ; la nature et le numéro servent
+// de repli pour les voiries métropolitaines et le périphérique.
+function troncClass(props) {
+  const cl = props.cpx_classement_administratif || '';
+  if (cl.startsWith('Autoroute')) return 'A';
+  if (cl.startsWith('Nationale')) return 'N';
+  if (cl.startsWith('Départementale')) return 'D';
+  if (props.nature === 'Type autoroutier' || M_AUTOROUTES.has(props.cpx_numero)) return 'A';
+  return 'D';
+}
+// Classe d'un PR (la couche n'a ni classement ni nature) : préfixe de la route.
+function prClass(route) {
+  const r = route || '';
+  if (r[0] === 'A' || M_AUTOROUTES.has(r) || r.startsWith('C0')) return 'A';
+  if (r[0] === 'N' || r[0] === 'T' || r[0] === 'P') return 'N';
+  return 'D';
+}
+const ROAD_STYLE = {
+  A: { color: '#2e6fb7', weight: 5, opacity: 0.9 },
+  N: { color: '#c0392b', weight: 4.5, opacity: 0.88 },
+  D: { color: '#e6b800', weight: 4, opacity: 0.85 }
+};
+// Bretelles : l'attribut nature fait foi ; la regex rattrape les numéros
+// internes (A908633, 93A900351) au cas où la nature manquerait.
+function isRamp(props) {
+  return props.nature === 'Bretelle' ||
+    (props.cpx_numero != null && /^\d{0,3}[A-Z]\d{5,}/.test(props.cpx_numero));
+}
+
+let controller = null;
+let debounceTimer = null;
+let popupIsOpen = false;
+let pendingReload = false;
+// Données en mémoire : le rendu (zoomend) est découplé du chargement (moveend).
+const cache = { bounds: null, rd: [], pr: [], rdMatched: 0, prMatched: 0 };
+let labelRegime = null; // true = étiquettes détaillées, false = pastilles
+
+function wfsUrl(typename, cql, startIndex) {
+  const p = new URLSearchParams({
+    SERVICE: 'WFS', VERSION: '2.0.0', REQUEST: 'GetFeature',
+    TYPENAMES: typename, outputFormat: 'application/json',
+    COUNT: PAGE_SIZE, STARTINDEX: startIndex, SORTBY: 'cleabs',
+    cql_filter: cql
+  });
+  return WFS + '?' + p.toString();
+}
+
+async function fetchLayer(typename, cql, signal) {
+  const features = [];
+  let matched = 0;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const resp = await fetch(wfsUrl(typename, cql, page * PAGE_SIZE), { signal });
+    if (!resp.ok) throw new Error('IGN HTTP ' + resp.status);
+    const data = await resp.json();
+    features.push(...data.features);
+    matched = data.numberMatched != null ? data.numberMatched : features.length;
+    if (features.length >= matched || data.numberReturned < PAGE_SIZE) break;
+  }
+  return { features, matched };
+}
+
+// Les départements publiant chaque PR des deux côtés de la chaussée (G/D),
+// on garde un seul point par (route, numéro, département) — priorité U > D > G.
+// Les fins de section (PRF) sont distinguées par leur abscisse.
+function dedupePR(features) {
+  const prio = { U: 3, D: 2, G: 1 };
+  const best = new Map();
+  for (const f of features) {
+    const p = f.properties;
+    const key = p.type_de_pr === 'PRF'
+      ? `${p.route}|FIN|${p.code_insee_du_departement}|${p.abscisse != null ? p.abscisse : f.geometry.coordinates.map(c => c.toFixed(3)).join()}`
+      : `${p.route}|${p.numero}|${p.code_insee_du_departement}`;
+    const cur = best.get(key);
+    if (!cur || (prio[p.cote] || 0) > (prio[cur.properties.cote] || 0)) best.set(key, f);
+  }
+  return [...best.values()];
+}
+
+function renderRD() {
+  rdLayer.clearLayers();
+  // Ordre de dessin : départementales dessous, nationales, autoroutes dessus ;
+  // à classe égale, les bretelles passent sous les chaussées principales.
+  const order = { D: 0, N: 1, A: 2 };
+  const sortKey = f => order[troncClass(f.properties)] * 2 + (isRamp(f.properties) ? 0 : 1);
+  const sorted = [...cache.rd].sort((a, b) => sortKey(a) - sortKey(b));
+  for (const f of sorted) {
+    const props = f.properties;
+    const geom = f.geometry;
+    if (!geom) continue;
+    const numero = props.cpx_numero;
+    const nom = numero || props.cpx_toponyme_route_nommee; // périphérique : numéro NULL
+    const ramp = isRamp(props);
+    const style = ROAD_STYLE[troncClass(props)];
+    const coordsList = geom.type === 'MultiLineString' ? geom.coordinates : [geom.coordinates];
+    for (const coords of coordsList) {
+      const line = L.polyline(coords.map(c => [c[1], c[0]]),
+        Object.assign({ renderer: canvas }, style, ramp ? { weight: 3, opacity: 0.7 } : null));
+      line.bindPopup(ramp
+        ? `<b>Bretelle d'échangeur</b>${numero ? ' (' + numero + ')' : ''}<br>Gestionnaire : ${props.cpx_gestionnaire || '—'}`
+        : `<b>${nom || 'Route'}</b><br>${props.cpx_classement_administratif || ''}<br>Gestionnaire : ${props.cpx_gestionnaire || '—'}`);
+      if (nom && !ramp) line.bindTooltip(nom, { sticky: true });
+      line.addTo(rdLayer);
+    }
+  }
+}
+
+function pkPopupHtml(p, lat, lon) {
+  return `<b>${p.route} — ${p.type_de_pr === 'PRF' ? 'Fin de route' : 'PR ' + p.numero}</b><br>` +
+    `Abscisse : ${p.abscisse != null ? p.abscisse + ' m' : '—'}<br>` +
+    `Côté : ${p.cote || '—'}<br>` +
+    `Département : ${p.code_insee_du_departement || '—'} (${p.gestionnaire || '—'})<br>` +
+    `<a class="gmaps-link" target="_blank" rel="noopener"` +
+    ` href="https://www.google.com/maps/dir/?api=1&destination=${lat.toFixed(6)}%2C${lon.toFixed(6)}">` +
+    `🧭 Itinéraire Google Maps</a>`;
+}
+
+function renderPK() {
+  labelRegime = map.getZoom() >= LABEL_ZOOM;
+  pkLayer.clearLayers();
+  for (const f of cache.pr) {
+    const p = f.properties;
+    const [lon, lat] = f.geometry.coordinates;
+    const cls = prClass(p.route);
+    let m;
+    if (labelRegime) {
+      const label = `${p.route} · ${p.type_de_pr === 'PRF' ? 'FIN' : 'PK ' + p.numero}`;
+      m = L.marker([lat, lon], { icon: L.divIcon({ className: 'pk-icon pk-' + cls.toLowerCase(), html: label, iconSize: null }) });
+    } else {
+      m = L.circleMarker([lat, lon], {
+        renderer: canvas, radius: 4.5,
+        color: '#333', weight: 1.5, fillOpacity: 1,
+        fillColor: cls === 'A' ? '#2e6fb7' : cls === 'N' ? '#c0392b' : '#ffd400'
+      });
+    }
+    m.bindPopup(pkPopupHtml(p, lat, lon));
+    m.addTo(pkLayer);
+  }
+}
+
+function updateStatus() {
+  const truncated = cache.rd.length < cache.rdMatched || cache.pr.length < cache.prMatched;
+  let msg = `${cache.rd.length} tronçons de route, ${cache.pr.length} points kilométriques.`;
+  if (truncated) {
+    msg = `Affichage partiel : ${cache.rd.length} tronçons sur ${cache.rdMatched} — zoomez pour tout voir.`;
+  }
+  setStatus(msg);
+}
+
+async function loadVisibleArea(force) {
+  if (map.getZoom() < MIN_ZOOM) {
+    setStatus('Zoomez davantage (zoom ≥ ' + MIN_ZOOM + ') — la zone est trop grande.');
+    return;
+  }
+  // Marge de 20 % autour de la vue : les petits déplacements restent dans le cache.
+  const wanted = map.getBounds().pad(0.2);
+  if (!force && cache.bounds && cache.bounds.contains(map.getBounds())
+      && cache.rd.length >= cache.rdMatched && cache.pr.length >= cache.prMatched) {
+    updateStatus(); // la vue est déjà couverte par les données chargées
+    return;
+  }
+  if (controller) controller.abort();
+  controller = new AbortController();
+  const signal = controller.signal;
+  setStatus('Chargement des données IGN…');
+
+  const bbox = `BBOX(geometrie,${wanted.getSouth().toFixed(5)},${wanted.getWest().toFixed(5)},${wanted.getNorth().toFixed(5)},${wanted.getEast().toFixed(5)})`;
+
+  try {
+    const [rd, pr] = await Promise.all([
+      fetchLayer('BDTOPO_V3:troncon_de_route', `${bbox} AND ${ROADS_FILTER}`, signal),
+      fetchLayer('BDTOPO_V3:point_de_repere', `${bbox} AND ${PR_FILTER}`, signal)
+    ]);
+    if (signal.aborted) return;
+
+    cache.bounds = wanted;
+    cache.rd = rd.features;
+    cache.rdMatched = rd.matched;
+    const deduped = dedupePR(pr.features);
+    cache.pr = deduped;
+    cache.prMatched = pr.matched - (pr.features.length - deduped.length);
+
+    renderRD();
+    renderPK();
+    updateStatus();
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    setStatus('Erreur : ' + e.message + ' — réessayez.');
+  }
+}
+
+function scheduleLoad() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => loadVisibleArea(false), 600);
+}
+
+document.getElementById('reload').addEventListener('click', () => {
+  clearTimeout(debounceTimer);
+  loadVisibleArea(true);
+});
+
+map.on('popupopen', () => { popupIsOpen = true; });
+map.on('popupclose', () => {
+  popupIsOpen = false;
+  if (pendingReload) { pendingReload = false; scheduleLoad(); }
+});
+
+map.on('moveend', () => {
+  clearTimeout(debounceTimer);
+  if (map.getZoom() < MIN_ZOOM) {
+    // Vue trop large : on fige l'affichage existant et on l'explique.
+    if (controller) controller.abort();
+    if (cache.rd.length || cache.pr.length) {
+      setStatus('Affichage figé (zone chargée précédemment) — rezoomez (≥ ' + MIN_ZOOM + ') pour actualiser.');
+    }
+    return;
+  }
+  if (popupIsOpen) { pendingReload = true; return; } // ne pas détruire le popup ouvert
+  scheduleLoad();
+});
+
+map.on('zoomend', () => {
+  // Changement pastilles ↔ étiquettes sans refetch.
+  const regime = map.getZoom() >= LABEL_ZOOM;
+  if (labelRegime !== null && regime !== labelRegime && cache.pr.length) renderPK();
+});
+
+// ---- Recherche département + route ----------------------------------------
+let searchController = null;
+const deptInput = document.getElementById('dept');
+const routeInput = document.getElementById('route');
+const clearBtn = document.getElementById('clearSearch');
+
+function normDept(s) {
+  s = s.trim().toUpperCase();
+  return /^\d$/.test(s) ? '0' + s : s; // « 8 » → « 08 » ; 2A/2B, 971… inchangés
+}
+function normRoute(s) {
+  s = s.trim().toUpperCase().replace(/\s+/g, '');
+  return /^\d/.test(s) ? 'D' + s : s; // « 912 » → « D912 » par défaut
+}
+const cqlEsc = v => v.replace(/'/g, "''");
+
+async function searchRoute() {
+  const dept = normDept(deptInput.value);
+  const route = normRoute(routeInput.value);
+  if (!dept || !route) {
+    setStatus('Indiquez un département (ex. 78) et une route (ex. D912, N10, A13).');
+    return;
+  }
+  if (searchController) searchController.abort();
+  searchController = new AbortController();
+  const signal = searchController.signal;
+  searchInfo = '';
+  setStatus(`Recherche de la ${route} dans le ${dept}…`);
+
+  const prCql = `code_insee_du_departement='${cqlEsc(dept)}' AND route='${cqlEsc(route)}'` +
+    ` AND type_de_pr IN ('PR','PR0','PRF')`;
+  const rdCql = `cpx_numero='${cqlEsc(route)}'` +
+    ` AND (insee_commune_gauche LIKE '${cqlEsc(dept)}%' OR insee_commune_droite LIKE '${cqlEsc(dept)}%')`;
+
+  try {
+    const [pr, rd] = await Promise.all([
+      fetchLayer('BDTOPO_V3:point_de_repere', prCql, signal),
+      fetchLayer('BDTOPO_V3:troncon_de_route', rdCql, signal)
+    ]);
+    if (signal.aborted) return;
+
+    searchLayer.clearLayers();
+    const bounds = L.latLngBounds([]);
+
+    for (const f of rd.features) {
+      if (!f.geometry) continue;
+      const coordsList = f.geometry.type === 'MultiLineString' ? f.geometry.coordinates : [f.geometry.coordinates];
+      for (const coords of coordsList) {
+        const latlngs = coords.map(c => [c[1], c[0]]);
+        latlngs.forEach(ll => bounds.extend(ll));
+        L.polyline(latlngs, { renderer: canvas, color: '#d63384', weight: 6, opacity: 0.95 })
+          .bindTooltip(route, { sticky: true }).addTo(searchLayer);
+      }
+    }
+    for (const f of dedupePR(pr.features)) {
+      const p = f.properties;
+      const [lon, lat] = f.geometry.coordinates;
+      bounds.extend([lat, lon]);
+      L.marker([lat, lon], {
+        icon: L.divIcon({
+          className: 'pk-icon pk-s',
+          html: p.type_de_pr === 'PRF' ? 'FIN' : 'PK ' + p.numero,
+          iconSize: null
+        }),
+        zIndexOffset: 1000
+      }).bindPopup(pkPopupHtml(p, lat, lon)).addTo(searchLayer);
+    }
+
+    if (!bounds.isValid()) {
+      setStatus(`${route} introuvable dans le département ${dept}. Vérifiez le numéro (ex. D912, N10, A13, T20).`);
+      return;
+    }
+    searchInfo = `${route} (${dept}) : ${rd.features.length} tronçons, ` +
+      `${dedupePR(pr.features).length} PK en violet`;
+    clearBtn.style.display = 'inline-block';
+    map.fitBounds(bounds.pad(0.1));
+    if (map.getZoom() >= MIN_ZOOM) updateStatus();
+    else setStatus('Zoomez (≥ ' + MIN_ZOOM + ') pour afficher les autres routes autour.');
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    setStatus('Erreur : ' + e.message + ' — réessayez.');
+  }
+}
+
+function clearSearch() {
+  if (searchController) searchController.abort();
+  searchLayer.clearLayers();
+  searchInfo = '';
+  clearBtn.style.display = 'none';
+  updateStatus();
+}
+
+document.getElementById('search').addEventListener('click', searchRoute);
+clearBtn.addEventListener('click', clearSearch);
+for (const el of [deptInput, routeInput]) {
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') searchRoute(); });
+}
+
+// ---- Mode application (PWA) ------------------------------------------------
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {}); // requiert HTTPS ou localhost
+}
+</script>
+</body>
+</html>

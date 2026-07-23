@@ -1,0 +1,16 @@
+{
+  "name": "Carte routière de France — PK",
+  "short_name": "Routes PK",
+  "description": "Autoroutes, nationales, départementales et points kilométriques (IGN BDTOPO). Recherche par département et numéro de route.",
+  "lang": "fr",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#2e6fb7",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" },
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}

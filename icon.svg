@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#2e6fb7"/>
+  <path d="M 140 512 C 200 380 180 300 256 256 C 332 212 312 132 372 0"
+        fill="none" stroke="#ffffff" stroke-width="56"/>
+  <path d="M 140 512 C 200 380 180 300 256 256 C 332 212 312 132 372 0"
+        fill="none" stroke="#e6b800" stroke-width="14" stroke-dasharray="34 26"/>
+  <rect x="96" y="300" width="200" height="110" rx="16" fill="#ffd400" stroke="#333333" stroke-width="10"/>
+  <text x="196" y="378" font-family="Arial, sans-serif" font-size="72" font-weight="bold"
+        text-anchor="middle" fill="#000000">PK 12</text>
+</svg>
