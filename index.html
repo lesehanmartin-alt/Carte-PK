@@ -462,29 +462,14 @@ async function searchRoute() {
 
   const prCql = `code_insee_du_departement='${cqlEsc(dept)}' AND route='${cqlEsc(route)}'` +
     ` AND type_de_pr IN ('PR','PR0','PRF')`;
-  const rdCql = `cpx_numero='${cqlEsc(route)}'` +
-    ` AND (insee_commune_gauche LIKE '${cqlEsc(dept)}%' OR insee_commune_droite LIKE '${cqlEsc(dept)}%')`;
 
   try {
-    const [pr, rd] = await Promise.all([
-      fetchLayer('BDTOPO_V3:point_de_repere', prCql, signal),
-      fetchLayer('BDTOPO_V3:troncon_de_route', rdCql, signal)
-    ]);
+    // 1) Les PK d'abord : requête rapide (~1 s), affichés immédiatement.
+    const pr = await fetchLayer('BDTOPO_V3:point_de_repere', prCql, signal);
     if (signal.aborted) return;
 
     searchLayer.clearLayers();
     const bounds = L.latLngBounds([]);
-
-    for (const f of rd.features) {
-      if (!f.geometry) continue;
-      const coordsList = f.geometry.type === 'MultiLineString' ? f.geometry.coordinates : [f.geometry.coordinates];
-      for (const coords of coordsList) {
-        const latlngs = coords.map(c => [c[1], c[0]]);
-        latlngs.forEach(ll => bounds.extend(ll));
-        L.polyline(latlngs, { renderer: canvas, color: '#d63384', weight: 6, opacity: 0.95 })
-          .bindTooltip(route, { sticky: true }).addTo(searchLayer);
-      }
-    }
     const dedupedPR = dedupePR(pr.features);
     let targetMarker = null;
     const prNums = [];
@@ -503,31 +488,60 @@ async function searchRoute() {
       }).bindPopup(pkPopupHtml(p, lat, lon)).addTo(searchLayer);
       if (prWanted && !targetMarker && prMatches(prWanted, p)) targetMarker = m;
     }
-
-    if (!bounds.isValid()) {
-      setStatus(`${route} introuvable dans le département ${dept}. Vérifiez le numéro (ex. D912, N10, A13, T20).`);
-      return;
-    }
-    searchInfo = `${route} (${dept}) : ${rd.features.length} tronçons, ${dedupedPR.length} PK en violet`;
-    clearBtn.style.display = 'inline-block';
     searchKeys = new Set(dedupedPR.map(f => prKey(f.properties)));
     if (cache.pr.length) renderPK(); // retire les étiquettes en double de la couche normale
 
-    if (targetMarker) {
-      // PR précis demandé : on centre dessus et on ouvre sa fiche (avec l'itinéraire).
-      searchInfo = `${route} (${dept}) — PR ${prWanted.toUpperCase()}`;
-      map.setView(targetMarker.getLatLng(), Math.max(map.getZoom(), 14));
-      targetMarker.openPopup();
-      updateStatus();
-    } else if (prWanted) {
-      const dispo = prNums.length ? ` PR existants : ${Math.min(...prNums)} à ${Math.max(...prNums)}.` : '';
-      map.fitBounds(bounds.pad(0.1));
-      setStatus(`PR ${prWanted} introuvable sur la ${route} (${dept}).${dispo}`);
-    } else {
-      map.fitBounds(bounds.pad(0.1));
-      if (map.getZoom() >= MIN_ZOOM) updateStatus();
-      else setStatus('Zoomez (≥ ' + MIN_ZOOM + ') pour afficher les autres routes autour.');
+    if (dedupedPR.length) {
+      clearBtn.style.display = 'inline-block';
+      if (targetMarker) {
+        // PR précis demandé : on centre dessus et on ouvre sa fiche (avec l'itinéraire).
+        searchInfo = `${route} (${dept}) — PR ${prWanted.toUpperCase()}`;
+        map.setView(targetMarker.getLatLng(), Math.max(map.getZoom(), 14));
+        targetMarker.openPopup();
+      } else if (prWanted) {
+        const dispo = prNums.length ? ` PR existants : ${Math.min(...prNums)} à ${Math.max(...prNums)}.` : '';
+        map.fitBounds(bounds.pad(0.1));
+        setStatus(`PR ${prWanted} introuvable sur la ${route} (${dept}).${dispo}`);
+      } else {
+        map.fitBounds(bounds.pad(0.1));
+        setStatus(`${dedupedPR.length} PK affichés — tracé de la route en cours…`);
+      }
     }
+
+    // 2) Le tracé ensuite, borné à la zone des PK : ~20× plus rapide que le
+    //    balayage national par attributs.
+    let rdCql = `cpx_numero='${cqlEsc(route)}'` +
+      ` AND (insee_commune_gauche LIKE '${cqlEsc(dept)}%' OR insee_commune_droite LIKE '${cqlEsc(dept)}%')`;
+    if (bounds.isValid()) {
+      const b = bounds.pad(0.25);
+      rdCql = `BBOX(geometrie,${b.getSouth().toFixed(4)},${b.getWest().toFixed(4)},` +
+        `${b.getNorth().toFixed(4)},${b.getEast().toFixed(4)}) AND ` + rdCql;
+    }
+    const rd = await fetchLayer('BDTOPO_V3:troncon_de_route', rdCql, signal);
+    if (signal.aborted) return;
+
+    const lineBounds = L.latLngBounds([]);
+    for (const f of rd.features) {
+      if (!f.geometry) continue;
+      const coordsList = f.geometry.type === 'MultiLineString' ? f.geometry.coordinates : [f.geometry.coordinates];
+      for (const coords of coordsList) {
+        const latlngs = coords.map(c => [c[1], c[0]]);
+        latlngs.forEach(ll => lineBounds.extend(ll));
+        L.polyline(latlngs, { renderer: canvas, color: '#d63384', weight: 6, opacity: 0.95 })
+          .bindTooltip(route, { sticky: true }).addTo(searchLayer);
+      }
+    }
+
+    if (!dedupedPR.length && !rd.features.length) {
+      setStatus(`${route} introuvable dans le département ${dept}. Vérifiez le numéro (ex. D912, N10, A13, T20).`);
+      return;
+    }
+    clearBtn.style.display = 'inline-block';
+    if (!dedupedPR.length && lineBounds.isValid()) map.fitBounds(lineBounds.pad(0.1));
+    if (!targetMarker) {
+      searchInfo = `${route} (${dept}) : ${rd.features.length} tronçons, ${dedupedPR.length} PK en violet`;
+    }
+    if (!prWanted || targetMarker) updateStatus();
   } catch (e) {
     if (e.name === 'AbortError') return;
     setStatus('Erreur : ' + e.message + ' — réessayez.');
