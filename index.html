@@ -124,7 +124,7 @@ let fondPref = 'plan';
 try { fondPref = localStorage.getItem('carte-rd-fond') || 'plan'; } catch (e) {}
 (fondPref === 'sat' ? fondSatellite : fondPlan).addTo(map);
 L.control.layers({ 'Plan': fondPlan, 'Satellite (IGN)': fondSatellite }, null,
-  { position: 'topright' }).addTo(map);
+  { position: 'bottomright' }).addTo(map);
 map.on('baselayerchange', e => {
   try { localStorage.setItem('carte-rd-fond', e.layer === fondSatellite ? 'sat' : 'plan'); } catch (err) {}
 });
