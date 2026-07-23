@@ -450,18 +450,25 @@ async function searchRoute() {
   const dept = normDept(deptInput.value);
   const route = normRoute(routeInput.value);
   const prWanted = prInput.value.trim();
-  if (!dept || !route) {
-    setStatus('Indiquez un département (ex. 78) et une route (ex. D912, N10, A13) — PR facultatif.');
+  if (!route) {
+    setStatus('Indiquez une route (ex. D912, N10, A13) — département obligatoire pour les D, facultatif pour A/N.');
     return;
   }
+  // Une D13 existe dans des dizaines de départements ; une A13 ou une N10
+  // est unique en France : le département n'est requis que pour les D.
+  if (!dept && route[0] === 'D') {
+    setStatus('Pour une départementale, indiquez aussi le n° du département (ex. 53 + D13).');
+    return;
+  }
+  const lieu = dept ? `${route} (${dept})` : route;
   if (searchController) searchController.abort();
   searchController = new AbortController();
   const signal = searchController.signal;
   searchInfo = '';
-  setStatus(`Recherche de la ${route} dans le ${dept}…`);
+  setStatus(`Recherche de la ${lieu}…`);
 
-  const prCql = `code_insee_du_departement='${cqlEsc(dept)}' AND route='${cqlEsc(route)}'` +
-    ` AND type_de_pr IN ('PR','PR0','PRF')`;
+  const prCql = (dept ? `code_insee_du_departement='${cqlEsc(dept)}' AND ` : '') +
+    `route='${cqlEsc(route)}' AND type_de_pr IN ('PR','PR0','PRF')`;
 
   try {
     // 1) Les PK d'abord : requête rapide (~1 s), affichés immédiatement.
@@ -495,13 +502,13 @@ async function searchRoute() {
       clearBtn.style.display = 'inline-block';
       if (targetMarker) {
         // PR précis demandé : on centre dessus et on ouvre sa fiche (avec l'itinéraire).
-        searchInfo = `${route} (${dept}) — PR ${prWanted.toUpperCase()}`;
+        searchInfo = `${lieu} — PR ${prWanted.toUpperCase()}`;
         map.setView(targetMarker.getLatLng(), Math.max(map.getZoom(), 14));
         targetMarker.openPopup();
       } else if (prWanted) {
         const dispo = prNums.length ? ` PR existants : ${Math.min(...prNums)} à ${Math.max(...prNums)}.` : '';
         map.fitBounds(bounds.pad(0.1));
-        setStatus(`PR ${prWanted} introuvable sur la ${route} (${dept}).${dispo}`);
+        setStatus(`PR ${prWanted} introuvable sur la ${lieu}.${dispo}`);
       } else {
         map.fitBounds(bounds.pad(0.1));
         setStatus(`${dedupedPR.length} PK affichés — tracé de la route en cours…`);
@@ -510,8 +517,8 @@ async function searchRoute() {
 
     // 2) Le tracé ensuite, borné à la zone des PK : ~20× plus rapide que le
     //    balayage national par attributs.
-    let rdCql = `cpx_numero='${cqlEsc(route)}'` +
-      ` AND (insee_commune_gauche LIKE '${cqlEsc(dept)}%' OR insee_commune_droite LIKE '${cqlEsc(dept)}%')`;
+    let rdCql = `cpx_numero='${cqlEsc(route)}'` + (dept ?
+      ` AND (insee_commune_gauche LIKE '${cqlEsc(dept)}%' OR insee_commune_droite LIKE '${cqlEsc(dept)}%')` : '');
     if (bounds.isValid()) {
       const b = bounds.pad(0.25);
       rdCql = `BBOX(geometrie,${b.getSouth().toFixed(4)},${b.getWest().toFixed(4)},` +
@@ -533,13 +540,13 @@ async function searchRoute() {
     }
 
     if (!dedupedPR.length && !rd.features.length) {
-      setStatus(`${route} introuvable dans le département ${dept}. Vérifiez le numéro (ex. D912, N10, A13, T20).`);
+      setStatus(`${route} introuvable${dept ? ' dans le département ' + dept : ' en France'}. Vérifiez le numéro (ex. D912, N10, A13, T20).`);
       return;
     }
     clearBtn.style.display = 'inline-block';
     if (!dedupedPR.length && lineBounds.isValid()) map.fitBounds(lineBounds.pad(0.1));
     if (!targetMarker) {
-      searchInfo = `${route} (${dept}) : ${rd.features.length} tronçons, ${dedupedPR.length} PK en violet`;
+      searchInfo = `${lieu} : ${rd.features.length} tronçons, ${dedupedPR.length} PK en violet`;
     }
     if (!prWanted || targetMarker) updateStatus();
   } catch (e) {
