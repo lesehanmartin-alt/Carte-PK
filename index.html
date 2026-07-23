@@ -57,41 +57,9 @@
     .topbar { font-size: .9em; padding: 6px 10px; }
     .legend { font-size: .78em; max-width: 210px; }
   }
-  #gate {
-    position: fixed; inset: 0; z-index: 3000; background: #2e6fb7;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .gate-card {
-    background: #fff; border-radius: 12px; padding: 28px 26px; max-width: 320px;
-    text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.35);
-  }
-  .gate-card h1 { font-size: 1.15em; margin: 0 0 4px; }
-  .gate-card p { color: #666; font-size: .85em; margin: 6px 0 14px; }
-  .gate-card input {
-    width: 100%; box-sizing: border-box; padding: 10px; font-size: 1.1em;
-    text-align: center; border: 1px solid #888; border-radius: 8px;
-    text-transform: uppercase;
-  }
-  .gate-card button {
-    width: 100%; margin-top: 10px; padding: 10px; font-size: 1em;
-    background: #2e6fb7; color: #fff; border: none;
-  }
-  .gate-card button:hover { background: #245a94; }
-  #gateError { color: #c0392b; font-size: .85em; min-height: 1.2em; margin-top: 8px; }
-  .gate-notice { font-size: .75em; color: #999; margin-top: 14px; }
 </style>
 </head>
 <body>
-<div id="gate">
-  <div class="gate-card">
-    <h1>🇫🇷 Carte routière &amp; PK</h1>
-    <p>Application à usage interne.<br>Saisissez le code d'accès.</p>
-    <input id="gateCode" placeholder="Code d'accès" autocomplete="off">
-    <button id="gateBtn">Entrer</button>
-    <div id="gateError"></div>
-    <div class="gate-notice">Usage interne — diffusion interdite<br>sans autorisation.</div>
-  </div>
-</div>
 <div id="map"></div>
 <div class="topbar">
   <b>🇫🇷 Autoroutes, RN, RD &amp; PK</b>
@@ -116,36 +84,6 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-// ---- Code d'accès (dissuasif : à remplacer par Cloudflare Access pour un
-// contrôle réel par liste d'e-mails) --------------------------------------
-(function () {
-  const GATE_HASH = 'c23bd115'; // empreinte du code, non réversible
-  const gate = document.getElementById('gate');
-  function hash(s) {
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = ((Math.imul(h, 33)) ^ s.charCodeAt(i)) >>> 0;
-    return h.toString(16);
-  }
-  function tryCode() {
-    const v = document.getElementById('gateCode').value.trim().toUpperCase();
-    if (hash(v) === GATE_HASH) {
-      try { localStorage.setItem('carte-rd-acces', GATE_HASH); } catch (e) {}
-      gate.remove();
-      map.invalidateSize();
-    } else {
-      document.getElementById('gateError').textContent = 'Code incorrect.';
-    }
-  }
-  try {
-    if (localStorage.getItem('carte-rd-acces') === GATE_HASH) { gate.remove(); return; }
-  } catch (e) {}
-  document.getElementById('gateBtn').addEventListener('click', tryCode);
-  document.getElementById('gateCode').addEventListener('keydown', e => {
-    if (e.key === 'Enter') tryCode();
-  });
-})();
-</script>
 <script>
 const MIN_ZOOM = 12;    // seuil unique de chargement (bouton et auto)
 const LABEL_ZOOM = 13;  // en dessous : pastilles ; à partir de : étiquettes détaillées
