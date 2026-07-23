@@ -267,11 +267,19 @@ function pkPopupHtml(p, lat, lon) {
     `🧭 Itinéraire Google Maps</a>`;
 }
 
+// Clé d'identité d'un PR — sert à ne pas afficher en double un PK déjà
+// épinglé en violet par la recherche.
+function prKey(p) {
+  return `${p.route}|${p.numero}|${p.code_insee_du_departement}`;
+}
+let searchKeys = new Set();
+
 function renderPK() {
   labelRegime = map.getZoom() >= LABEL_ZOOM;
   pkLayer.clearLayers();
   for (const f of cache.pr) {
     const p = f.properties;
+    if (searchKeys.has(prKey(p))) continue; // déjà affiché par la recherche
     const [lon, lat] = f.geometry.coordinates;
     const cls = prClass(p.route);
     let m;
@@ -466,6 +474,8 @@ async function searchRoute() {
     }
     searchInfo = `${route} (${dept}) : ${rd.features.length} tronçons, ${dedupedPR.length} PK en violet`;
     clearBtn.style.display = 'inline-block';
+    searchKeys = new Set(dedupedPR.map(f => prKey(f.properties)));
+    if (cache.pr.length) renderPK(); // retire les étiquettes en double de la couche normale
 
     if (targetMarker) {
       // PR précis demandé : on centre dessus et on ouvre sa fiche (avec l'itinéraire).
@@ -494,6 +504,8 @@ function clearSearch() {
   searchInfo = '';
   prInput.value = '';
   clearBtn.style.display = 'none';
+  searchKeys = new Set();
+  if (cache.pr.length) renderPK(); // réaffiche les étiquettes normales
   updateStatus();
 }
 
