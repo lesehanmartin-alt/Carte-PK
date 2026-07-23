@@ -108,10 +108,26 @@ window.addEventListener('resize', () => map.invalidateSize());
 document.addEventListener('visibilitychange', () => map.invalidateSize());
 setTimeout(() => map.invalidateSize(), 300);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+const fondPlan = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | Routes &amp; PR : <a href="https://geoservices.ign.fr/bdtopo">IGN BDTOPO®</a>'
-}).addTo(map);
+});
+const fondSatellite = L.tileLayer(
+  'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+  '&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg' +
+  '&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
+  maxZoom: 19,
+  attribution: 'Photos aériennes &copy; <a href="https://geoservices.ign.fr">IGN</a> | Routes &amp; PR : IGN BDTOPO®'
+});
+// Fond mémorisé par appareil (plan par défaut).
+let fondPref = 'plan';
+try { fondPref = localStorage.getItem('carte-rd-fond') || 'plan'; } catch (e) {}
+(fondPref === 'sat' ? fondSatellite : fondPlan).addTo(map);
+L.control.layers({ 'Plan': fondPlan, 'Satellite (IGN)': fondSatellite }, null,
+  { position: 'topright' }).addTo(map);
+map.on('baselayerchange', e => {
+  try { localStorage.setItem('carte-rd-fond', e.layer === fondSatellite ? 'sat' : 'plan'); } catch (err) {}
+});
 
 const canvas = L.canvas();
 const rdLayer = L.layerGroup().addTo(map);
