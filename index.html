@@ -311,6 +311,8 @@ function prKey(p) {
 let searchKeys = new Set();
 
 function renderPK() {
+  // Trop dézoomé : les PK ne sont qu'un nuage illisible, on les masque.
+  if (map.getZoom() < MIN_ZOOM) { pkLayer.clearLayers(); return; }
   labelRegime = map.getZoom() >= LABEL_ZOOM;
   pkLayer.clearLayers();
   for (const f of cache.pr) {
@@ -410,10 +412,13 @@ map.on('moveend', () => {
   scheduleLoad();
 });
 
+let pkEtat = null; // 'cache' | 'pastilles' | 'etiquettes'
 map.on('zoomend', () => {
-  // Changement pastilles ↔ étiquettes sans refetch.
-  const regime = map.getZoom() >= LABEL_ZOOM;
-  if (labelRegime !== null && regime !== labelRegime && cache.pr.length) renderPK();
+  // Trois régimes selon le zoom : masqué (< 12), pastilles (12), étiquettes (≥ 13).
+  const z = map.getZoom();
+  const etat = z < MIN_ZOOM ? 'cache' : (z >= LABEL_ZOOM ? 'etiquettes' : 'pastilles');
+  if (etat !== pkEtat && cache.pr.length) renderPK();
+  pkEtat = etat;
 });
 
 // ---- Recherche département + route ----------------------------------------
