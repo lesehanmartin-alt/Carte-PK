@@ -118,13 +118,22 @@ const fondPlan = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
   maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> | Routes &amp; PR : <a href="https://geoservices.ign.fr/bdtopo">IGN BDTOPO®</a>'
 });
-const fondSatellite = L.tileLayer(
+const fondOrtho = L.tileLayer(
   'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
   '&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg' +
   '&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
   maxZoom: 19,
-  attribution: 'Photos aériennes &copy; <a href="https://geoservices.ign.fr">IGN</a> | Routes &amp; PR : IGN BDTOPO®'
+  attribution: 'Photos aériennes &amp; toponymes &copy; <a href="https://geoservices.ign.fr">IGN</a> | Routes &amp; PR : IGN BDTOPO®'
 });
+// Noms de lieux officiels IGN (transparents) par-dessus les photos : grandes
+// villes aux petits zooms, puis villages, hameaux et lieux-dits en zoomant.
+const fondToponymes = L.tileLayer(
+  'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+  '&LAYER=GEOGRAPHICALNAMES.NAMES&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png' +
+  '&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
+  maxNativeZoom: 18, maxZoom: 19
+});
+const fondSatellite = L.layerGroup([fondOrtho, fondToponymes]);
 // Fond mémorisé par appareil (plan par défaut).
 let fondPref = 'plan';
 try { fondPref = localStorage.getItem('carte-rd-fond') || 'plan'; } catch (e) {}
