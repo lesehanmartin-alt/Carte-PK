@@ -434,6 +434,7 @@ function normDept(s) {
 }
 function normRoute(s) {
   s = s.trim().toUpperCase().replace(/\s+/g, '');
+  s = s.replace(/^R(?=[ND])/, ''); // « RN10 » → « N10 », « RD13 » → « D13 »
   return /^\d/.test(s) ? 'D' + s : s; // « 912 » → « D912 » par défaut
 }
 const cqlEsc = v => v.replace(/'/g, "''");
