@@ -45,19 +45,26 @@
   .pk-icon.pk-a { background: #2e6fb7; color: #fff; border-color: #1a3d66; }
   .pk-icon.pk-n { background: #c0392b; color: #fff; border-color: #6e1f16; }
   .pk-icon.pk-s { background: #d63384; color: #fff; border-color: #7a1148; font-size: 11px; }
+  .pk-icon.pk-plus { background: #fff; color: #d63384; border: 2px dashed #d63384; font-size: 11px; }
   .gmaps-link {
     display: inline-block; margin-top: 6px; padding: 4px 10px;
     background: #1a73e8; color: #fff !important; border-radius: 6px;
     text-decoration: none; font-weight: 600;
   }
   .gmaps-link:hover { background: #1557b0; }
+  .waze-link {
+    display: inline-block; margin-top: 6px; margin-left: 6px; padding: 4px 10px;
+    background: #33ccff; color: #00303f !important; border-radius: 6px;
+    text-decoration: none; font-weight: 600;
+  }
+  .waze-link:hover { background: #1db8ec; }
   .searchbar { display: flex; gap: 6px; align-items: center; }
   .searchbar input {
     border: 1px solid #888; border-radius: 6px; padding: 4px 6px;
     font-size: .95em; width: 3.2em;
   }
   .searchbar input#route { width: 5em; }
-  .searchbar input#pr { width: 3em; }
+  .searchbar input#pr { width: 4.2em; }
   #clearSearch { display: none; }
   #legendToggle {
     display: block; width: 100%; text-align: left; border: none;
@@ -79,7 +86,7 @@
   <span class="searchbar">
     <input id="dept" placeholder="Dépt" maxlength="3" autocomplete="off">
     <input id="route" placeholder="Route" autocomplete="off">
-    <input id="pr" placeholder="PR" maxlength="4" autocomplete="off" title="N° de PR (facultatif)">
+    <input id="pr" placeholder="PR" maxlength="8" autocomplete="off" title="N° de PR, ou PR+abscisse : 7+500 ou 7.500 (facultatif)">
     <button id="search" title="Rechercher la route dans le département">🔍</button>
     <button id="clearSearch" title="Effacer la recherche">✕</button>
   </span>
@@ -134,9 +141,9 @@ const fondToponymes = L.tileLayer(
   maxNativeZoom: 18, maxZoom: 19
 });
 const fondSatellite = L.layerGroup([fondOrtho, fondToponymes]);
-// Fond mémorisé par appareil (plan par défaut).
-let fondPref = 'plan';
-try { fondPref = localStorage.getItem('carte-rd-fond') || 'plan'; } catch (e) {}
+// Fond mémorisé par appareil (satellite par défaut).
+let fondPref = 'sat';
+try { fondPref = localStorage.getItem('carte-rd-fond') || 'sat'; } catch (e) {}
 (fondPref === 'sat' ? fondSatellite : fondPlan).addTo(map);
 L.control.layers({ 'Plan': fondPlan, 'Satellite (IGN)': fondSatellite }, null,
   { position: 'bottomright' }).addTo(map);
@@ -290,17 +297,122 @@ function renderRD() {
   }
 }
 
-function pkPopupHtml(p, lat, lon) {
+// Bouton d'itinéraire : window.open + repli sur la navigation classique —
+// certains téléphones en mode « application installée » ignorent target="_blank".
+function gmapsBtn(lat, lon) {
   const url = `https://www.google.com/maps/dir/?api=1&destination=${lat.toFixed(6)},${lon.toFixed(6)}`;
-  // window.open + repli sur la navigation classique : certains téléphones en
-  // mode « application installée » ignorent silencieusement target="_blank".
+  const waze = `https://waze.com/ul?ll=${lat.toFixed(6)},${lon.toFixed(6)}&navigate=yes`;
+  return `<a class="gmaps-link" href="${url}" target="_blank" rel="noopener"` +
+    ` onclick="return !window.open(this.href, '_blank')">` +
+    `🧭 Google Maps</a>` +
+    `<a class="waze-link" href="${waze}" target="_blank" rel="noopener"` +
+    ` onclick="return !window.open(this.href, '_blank')">` +
+    `🚗 Waze</a>`;
+}
+
+function pkPopupHtml(p, lat, lon) {
   return `<b>${p.route} — ${p.type_de_pr === 'PRF' ? 'Fin de route' : 'PR ' + p.numero}</b><br>` +
     `Abscisse : ${p.abscisse != null ? p.abscisse + ' m' : '—'}<br>` +
     `Côté : ${p.cote || '—'}<br>` +
     `Département : ${p.code_insee_du_departement || '—'} (${p.gestionnaire || '—'})<br>` +
-    `<a class="gmaps-link" href="${url}" target="_blank" rel="noopener"` +
-    ` onclick="return !window.open(this.href, '_blank')">` +
-    `🧭 Itinéraire Google Maps</a>`;
+    gmapsBtn(lat, lon);
+}
+
+// ---- Repérage « PR + abscisse » (ex. 15+200 = 200 m après la borne 15) ----
+function parsePrPlus(s) {
+  // Formats acceptés : « 7+500 », « 7.500 », « 7,500 » (base + mètres).
+  const m = s.trim().match(/^(\d+)\s*[+.,]\s*(\d+)$/);
+  return m ? { base: parseInt(m[1], 10), offset: parseInt(m[2], 10) } : null;
+}
+
+// Suit le tracé de la route depuis une borne, dans le sens des PR croissants,
+// sur `offsetM` mètres. `versLL` = borne suivante (donne le sens), `opposeLL` =
+// borne précédente (sens inverse, si la suivante manque). `deltaOfficiel` =
+// distance officielle entre bornes (abscisses), pour caler la mesure.
+function walkPRPlus(lignes, startLL, versLL, opposeLL, offsetM, deltaOfficiel) {
+  if (!lignes.length || (!versLL && !opposeLL)) return null;
+  const K = Math.cos(startLL.lat * Math.PI / 180);
+  const xy = (lat, lng) => ({ x: lng * 111320 * K, y: lat * 110540 });
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const P = lignes.map(pts => pts.map(c => xy(c[0], c[1])));
+
+  // Point le plus proche de la borne sur l'ensemble du tracé.
+  const s0 = xy(startLL.lat, startLL.lng);
+  let best = null;
+  for (let li = 0; li < P.length; li++) {
+    const pts = P[li];
+    for (let si = 0; si + 1 < pts.length; si++) {
+      const a = pts[si], b = pts[si + 1];
+      const abx = b.x - a.x, aby = b.y - a.y;
+      const l2 = abx * abx + aby * aby;
+      const t = l2 ? Math.max(0, Math.min(1, ((s0.x - a.x) * abx + (s0.y - a.y) * aby) / l2)) : 0;
+      const pt = { x: a.x + t * abx, y: a.y + t * aby };
+      const d = dist(s0, pt);
+      if (!best || d < best.d) best = { li, si, t, pt, d };
+    }
+  }
+  if (!best || best.d > 150) return null;
+
+  const ref = versLL ? xy(versLL.lat, versLL.lng) : null;
+  const refOpp = opposeLL ? xy(opposeLL.lat, opposeLL.lng) : null;
+  // Sens initial sur la polyligne de départ : vers la borne suivante,
+  // ou à l'opposé de la précédente.
+  const ptsDep = P[best.li];
+  const finAvant = ptsDep[ptsDep.length - 1], finArriere = ptsDep[0];
+  let dir;
+  if (ref) dir = dist(finAvant, ref) <= dist(finArriere, ref) ? 1 : -1;
+  else dir = dist(finAvant, refOpp) >= dist(finArriere, refOpp) ? 1 : -1;
+
+  // Parcours du graphe de tronçons.
+  let cum = 0, cumAtNext = null, minDNext = Infinity;
+  const chemin = [{ pt: best.pt, cum: 0 }];
+  const visitees = new Set([best.li]);
+  let curLi = best.li, cur = best.pt;
+  let i = dir > 0 ? best.si + 1 : best.si;
+  const maxWalk = offsetM * 2 + 3000;
+  for (let garde = 0; garde < 500 && cum < maxWalk; garde++) {
+    const pts = P[curLi];
+    while (dir > 0 ? i < pts.length : i >= 0) {
+      const nxt = pts[i];
+      cum += dist(cur, nxt);
+      chemin.push({ pt: nxt, cum });
+      if (ref) { const dd = dist(nxt, ref); if (dd < minDNext) { minDNext = dd; cumAtNext = cum; } }
+      cur = nxt; i += dir;
+      if (cum >= maxWalk) break;
+    }
+    if (cum >= maxWalk) break;
+    // Continuation : tronçon dont une extrémité touche la position courante.
+    let cont = null;
+    for (let li = 0; li < P.length; li++) {
+      if (visitees.has(li)) continue;
+      const q = P[li];
+      const da = dist(cur, q[0]), db = dist(cur, q[q.length - 1]);
+      if (da < 30) { const far = q[q.length - 1]; const score = ref ? dist(far, ref) : -dist(far, refOpp); if (!cont || score < cont.score) cont = { li, dir: 1, i: 1, score }; }
+      if (db < 30) { const far = q[0]; const score = ref ? dist(far, ref) : -dist(far, refOpp); if (!cont || score < cont.score) cont = { li, dir: -1, i: q.length - 2, score }; }
+    }
+    if (!cont) break;
+    visitees.add(cont.li); curLi = cont.li; dir = cont.dir; i = cont.i;
+  }
+
+  // Calage sur les abscisses officielles si la borne suivante a été atteinte.
+  let facteur = 1;
+  if (ref && cumAtNext && minDNext < 60 && deltaOfficiel > 200) {
+    const f = cumAtNext / deltaOfficiel;
+    if (f > 0.7 && f < 1.4) facteur = f;
+  }
+  const cible = offsetM * facteur;
+  const fin = chemin[chemin.length - 1];
+  if (fin.cum < cible - 60) return null; // tracé trop court
+  const c = Math.min(cible, fin.cum);
+  for (let k = 1; k < chemin.length; k++) {
+    if (chemin[k].cum >= c) {
+      const a = chemin[k - 1], b = chemin[k];
+      const t = (b.cum - a.cum) ? (c - a.cum) / (b.cum - a.cum) : 0;
+      const x = a.pt.x + t * (b.pt.x - a.pt.x), y = a.pt.y + t * (b.pt.y - a.pt.y);
+      return L.latLng(y / 110540, x / (111320 * K));
+    }
+  }
+  return null;
 }
 
 // Clé d'identité d'un PR — sert à ne pas afficher en double un PK déjà
@@ -481,6 +593,9 @@ async function searchRoute() {
     const dedupedPR = dedupePR(pr.features);
     let targetMarker = null;
     const prNums = [];
+    // Repérage « 15+200 » : borne de base, suivante (sens) et précédente (repli).
+    const prPlus = parsePrPlus(prWanted);
+    let baseLL = null, nextLL = null, awayLL = null, absBase = null, absNext = null;
     for (const f of dedupedPR) {
       const p = f.properties;
       const [lon, lat] = f.geometry.coordinates;
@@ -494,14 +609,25 @@ async function searchRoute() {
         }),
         zIndexOffset: 1000
       }).bindPopup(pkPopupHtml(p, lat, lon)).addTo(searchLayer);
-      if (prWanted && !targetMarker && prMatches(prWanted, p)) targetMarker = m;
+      const cible = prPlus ? String(prPlus.base) : prWanted;
+      if (prWanted && !targetMarker && prMatches(cible, p)) targetMarker = m;
+      if (prPlus && /^\d+$/.test(p.numero)) {
+        const n = parseInt(p.numero, 10);
+        if (n === prPlus.base && !baseLL) { baseLL = L.latLng(lat, lon); absBase = p.abscisse; }
+        else if (n === prPlus.base + 1 && !nextLL) { nextLL = L.latLng(lat, lon); absNext = p.abscisse; }
+        else if (n === prPlus.base - 1 && !awayLL) { awayLL = L.latLng(lat, lon); }
+      }
     }
     searchKeys = new Set(dedupedPR.map(f => prKey(f.properties)));
     if (cache.pr.length) renderPK(); // retire les étiquettes en double de la couche normale
 
     if (dedupedPR.length) {
       clearBtn.style.display = 'inline-block';
-      if (targetMarker) {
+      if (prPlus && baseLL) {
+        // On attend le tracé pour calculer le point : cadrage provisoire.
+        map.setView(baseLL, Math.max(map.getZoom(), 13));
+        setStatus(`Calcul du PR ${prPlus.base}+${prPlus.offset}…`);
+      } else if (targetMarker) {
         // PR précis demandé : on centre dessus et on ouvre sa fiche (avec l'itinéraire).
         searchInfo = `${lieu} — PR ${prWanted.toUpperCase()}`;
         map.setView(targetMarker.getLatLng(), Math.max(map.getZoom(), 14));
@@ -529,14 +655,38 @@ async function searchRoute() {
     if (signal.aborted) return;
 
     const lineBounds = L.latLngBounds([]);
+    const lignes = [];
     for (const f of rd.features) {
       if (!f.geometry) continue;
       const coordsList = f.geometry.type === 'MultiLineString' ? f.geometry.coordinates : [f.geometry.coordinates];
       for (const coords of coordsList) {
         const latlngs = coords.map(c => [c[1], c[0]]);
         latlngs.forEach(ll => lineBounds.extend(ll));
+        lignes.push(latlngs);
         L.polyline(latlngs, { renderer: canvas, color: '#d63384', weight: 6, opacity: 0.95 })
           .bindTooltip(route, { sticky: true }).addTo(searchLayer);
+      }
+    }
+
+    // Point « PR base + offset » le long du tracé.
+    if (prPlus && baseLL) {
+      const delta = (absBase != null && absNext != null) ? (absNext - absBase) : null;
+      const pt = walkPRPlus(lignes, baseLL, nextLL, awayLL, prPlus.offset, delta);
+      if (pt) {
+        const lab = `PR ${prPlus.base}+${prPlus.offset}`;
+        const mk = L.marker(pt, {
+          icon: L.divIcon({ className: 'pk-icon pk-plus', html: lab, iconSize: null }),
+          zIndexOffset: 2000
+        }).bindPopup(`<b>${route} — ${lab}</b><br>` +
+          `Point calculé le long de la route, ${prPlus.offset} m après la borne ${prPlus.base}<br>` +
+          gmapsBtn(pt.lat, pt.lng)).addTo(searchLayer);
+        searchInfo = `${lieu} — ${lab}`;
+        map.setView(pt, Math.max(map.getZoom(), 15));
+        mk.openPopup();
+      } else {
+        searchInfo = lieu;
+        setStatus(`Impossible de suivre le tracé pour « ${prPlus.base}+${prPlus.offset} » — borne ${prPlus.base} affichée.`);
+        if (targetMarker) { map.setView(targetMarker.getLatLng(), Math.max(map.getZoom(), 14)); targetMarker.openPopup(); }
       }
     }
 
