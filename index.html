@@ -92,7 +92,7 @@
     <div><span class="swatch" style="background:#c0392b"></span>Nationale (N…, T… en Corse)</div>
     <div><span class="swatch" style="background:#e6b800"></span>Départementale (D…)</div>
     <div><span class="dot"></span>Point kilométrique (zoom 12, couleur selon la classe)</div>
-    <div><span class="pk-icon" style="display:inline-block;">D19 · PK 12</span> PK détaillé (zoom ≥ 13)</div>
+    <div><span class="pk-icon" style="display:inline-block;">D19 · PK 12 · 12.208</span> PK détaillé + abscisse en km (zoom ≥ 13)</div>
     <div><span class="pk-icon" style="display:inline-block;">D19 · FIN</span> Fin de la route</div>
     <div style="color:#777;font-size:.9em">Données : IGN BDTOPO® (PR fournis par les Départements)</div>
     <div style="color:#999;font-size:.85em">Usage interne — diffusion interdite sans autorisation</div>
@@ -290,6 +290,11 @@ function renderRD() {
   }
 }
 
+// Abscisse en km (ex. 5200 m → « 5.200 ») pour les étiquettes.
+function kmStr(p) {
+  return p.abscisse != null ? ' · ' + (p.abscisse / 1000).toFixed(3) : '';
+}
+
 function pkPopupHtml(p, lat, lon) {
   const url = `https://www.google.com/maps/dir/?api=1&destination=${lat.toFixed(6)},${lon.toFixed(6)}`;
   // window.open + repli sur la navigation classique : certains téléphones en
@@ -322,7 +327,7 @@ function renderPK() {
     const cls = prClass(p.route);
     let m;
     if (labelRegime) {
-      const label = `${p.route} · ${p.type_de_pr === 'PRF' ? 'FIN' : 'PK ' + p.numero}`;
+      const label = `${p.route} · ${p.type_de_pr === 'PRF' ? 'FIN' : 'PK ' + p.numero}${kmStr(p)}`;
       m = L.marker([lat, lon], { icon: L.divIcon({ className: 'pk-icon pk-' + cls.toLowerCase(), html: label, iconSize: null }) });
     } else {
       m = L.circleMarker([lat, lon], {
@@ -489,7 +494,7 @@ async function searchRoute() {
       const m = L.marker([lat, lon], {
         icon: L.divIcon({
           className: 'pk-icon pk-s',
-          html: p.type_de_pr === 'PRF' ? 'FIN' : 'PK ' + p.numero,
+          html: (p.type_de_pr === 'PRF' ? 'FIN' : 'PK ' + p.numero) + kmStr(p),
           iconSize: null
         }),
         zIndexOffset: 1000
