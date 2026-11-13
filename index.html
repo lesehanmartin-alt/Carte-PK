@@ -58,6 +58,13 @@
     text-decoration: none; font-weight: 600;
   }
   .waze-link:hover { background: #1db8ec; }
+  /* Géolocalisation : bouton « ma position » et point bleu façon Maps */
+  .loc-btn a.active { background: #d7e6fb; }
+  .loc-dot {
+    box-sizing: border-box; width: 16px; height: 16px; border-radius: 50%;
+    background: #1a73e8; border: 3px solid #fff;
+    box-shadow: 0 0 5px rgba(0,0,0,.5);
+  }
   .searchbar { display: flex; gap: 6px; align-items: center; }
   .searchbar input {
     border: 1px solid #888; border-radius: 6px; padding: 4px 6px;
@@ -736,6 +743,118 @@ let legendPref = null;
 try { legendPref = localStorage.getItem('carte-rd-legende'); } catch (e) {}
 // Par défaut : repliée sur petit écran, dépliée sur grand.
 setLegend(legendPref !== null ? legendPref === '1' : window.innerWidth < 640);
+
+// ---- Géolocalisation (« ma position », point bleu façon Maps) ---------------
+// Un appui sur 📍 : la position s'affiche (point bleu + halo de précision) et
+// la carte suit. Déplacer la carte suspend le suivi sans masquer le point ;
+// un nouvel appui recentre. Le GPS est coupé quand l'appli passe en
+// arrière-plan (batterie) et relancé au retour.
+let locWatchId = null, locFollow = false, locMarker = null, locCircle = null, locLastPos = null, locWatchPaused = false;
+const locIcon = L.divIcon({ className: 'loc-dot', iconSize: [16, 16], iconAnchor: [8, 8] });
+
+const LocControl = L.Control.extend({
+  options: { position: 'bottomright' },
+  onAdd: function () {
+    const div = L.DomUtil.create('div', 'leaflet-bar loc-btn');
+    const a = L.DomUtil.create('a', '', div);
+    a.href = '#'; a.title = 'Ma position'; a.textContent = '📍';
+    a.setAttribute('role', 'button');
+    L.DomEvent.on(a, 'click', e => { L.DomEvent.stop(e); locClick(); });
+    this._link = a;
+    return div;
+  }
+});
+const locControl = new LocControl().addTo(map);
+
+function locSetActive(on) {
+  if (locControl._link) locControl._link.classList.toggle('active', on);
+}
+
+function locClick() {
+  if (!('geolocation' in navigator)) {
+    setStatus('Localisation non disponible sur cet appareil.');
+    return;
+  }
+  locFollow = true;
+  locSetActive(true);
+  if (locWatchId !== null) {
+    // Déjà en cours : simple recentrage sur la dernière position connue.
+    if (locLastPos) map.setView(locLastPos, Math.max(map.getZoom(), 15));
+    return;
+  }
+  setStatus('Recherche de votre position…');
+  locStartWatch();
+}
+
+function locStartWatch() {
+  locWatchId = navigator.geolocation.watchPosition(onLocFix, onLocError, {
+    enableHighAccuracy: true, maximumAge: 2000, timeout: 20000
+  });
+}
+
+function onLocFix(pos) {
+  const ll = [pos.coords.latitude, pos.coords.longitude];
+  const acc = pos.coords.accuracy || 0;
+  const first = !locMarker;
+  locLastPos = ll;
+  if (first) {
+    locCircle = L.circle(ll, {
+      radius: acc, color: '#1a73e8', weight: 1, opacity: .35,
+      fillColor: '#1a73e8', fillOpacity: .12, interactive: false
+    }).addTo(map);
+    locMarker = L.marker(ll, { icon: locIcon, interactive: false, zIndexOffset: 9000 }).addTo(map);
+  } else {
+    locMarker.setLatLng(ll);
+    locCircle.setLatLng(ll);
+    locCircle.setRadius(acc);
+  }
+  if (locFollow) {
+    if (first) {
+      map.setView(ll, Math.max(map.getZoom(), 15));
+      setStatus('Vous êtes ici (précision ±' + Math.round(acc) + ' m).');
+    } else {
+      map.panTo(ll);
+    }
+  }
+}
+
+function onLocError(err) {
+  locStopWatch(true);
+  if (err && err.code === 1) {
+    setStatus('Localisation refusée — autorisez la position pour ce site dans les réglages du navigateur.');
+  } else {
+    setStatus('Position introuvable pour le moment — réessayez à découvert.');
+  }
+}
+
+function locStopWatch(clearDot) {
+  if (locWatchId !== null) { navigator.geolocation.clearWatch(locWatchId); locWatchId = null; }
+  locFollow = false;
+  locSetActive(false);
+  if (clearDot) {
+    if (locMarker) { map.removeLayer(locMarker); locMarker = null; }
+    if (locCircle) { map.removeLayer(locCircle); locCircle = null; }
+    locLastPos = null;
+  }
+}
+
+// Déplacer la carte à la main suspend le suivi (le point reste affiché).
+map.on('dragstart', () => { locFollow = false; locSetActive(false); });
+
+// Batterie : GPS coupé quand l'onglet/l'appli passe en arrière-plan,
+// relancé automatiquement au retour si la localisation était active.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (locWatchId !== null) {
+      navigator.geolocation.clearWatch(locWatchId);
+      locWatchId = null;
+      locWatchPaused = true;
+    }
+  } else if (locWatchPaused) {
+    locWatchPaused = false;
+    locStartWatch();
+  }
+});
 
 // ---- Mode application (PWA) ------------------------------------------------
 if ('serviceWorker' in navigator) {
