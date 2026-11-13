@@ -2,7 +2,7 @@
 // jour arrivent immédiatement), le cache ne sert qu'en secours hors ligne.
 // Les bibliothèques et l'icône sont en cache-first. Les données IGN et les
 // tuiles OSM restent toujours en réseau direct.
-const CACHE = 'carte-rd-v4';
+const CACHE = 'carte-rd-v5';
 const SHELL = [
   './',
   './index.html',

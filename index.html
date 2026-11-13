@@ -104,7 +104,7 @@
   <div id="legendBody">
     <div><span class="swatch" style="background:#2e6fb7"></span>Autoroute (A…, périph., M6/M7…)</div>
     <div><span class="swatch" style="background:#c0392b"></span>Nationale (N…, T… en Corse)</div>
-    <div><span class="swatch" style="background:#e6b800"></span>Départementale (D…)</div>
+    <div><span class="swatch" style="background:#e6b800"></span>Départementale / Métropolitaine (D…, M…)</div>
     <div><span class="dot"></span>Point kilométrique (zoom 12, couleur selon la classe)</div>
     <div><span class="pk-icon" style="display:inline-block;">D19 · PK 12</span> PK détaillé (zoom ≥ 13)</div>
     <div><span class="pk-icon" style="display:inline-block;">D19 · FIN</span> Fin de la route</div>
@@ -571,13 +571,13 @@ async function searchRoute() {
   const route = normRoute(routeInput.value);
   const prWanted = prInput.value.trim();
   if (!route) {
-    setStatus('Indiquez une route (ex. D912, N10, A13) — département obligatoire pour les D, facultatif pour A/N.');
+    setStatus('Indiquez une route (ex. D912, M114, N10, A13) — département obligatoire pour les D/M, facultatif pour A/N.');
     return;
   }
   // Une D13 existe dans des dizaines de départements ; une A13 ou une N10
-  // est unique en France : le département n'est requis que pour les D.
-  if (!dept && route[0] === 'D') {
-    setStatus('Pour une départementale, indiquez aussi le n° du département (ex. 53 + D13).');
+  // est unique en France : le département n'est requis que pour les D et M.
+  if (!dept && (route[0] === 'D' || route[0] === 'M')) {
+    setStatus('Pour une départementale ou métropolitaine (M), indiquez aussi le n° du département (ex. 34 + M114).');
     return;
   }
   const lieu = dept ? `${route} (${dept})` : route;
@@ -587,8 +587,16 @@ async function searchRoute() {
   searchInfo = '';
   setStatus(`Recherche de la ${lieu}…`);
 
+  // Métropoles : des ex-départementales sont renommées « M » (M114 à
+  // Montpellier, M6/M7 à Lyon…) mais leurs bornes PR restent souvent sous
+  // l'ancien « D » dans le référentiel — et à Nice c'est l'inverse. Pour
+  // toute route D ou M, on interroge donc les deux écritures à la fois.
+  const variantes = /^[DM]/.test(route) ?
+    [route, (route[0] === 'D' ? 'M' : 'D') + route.slice(1)] : [route];
+  const inList = variantes.map(v => `'${cqlEsc(v)}'`).join(',');
+
   const prCql = (dept ? `code_insee_du_departement='${cqlEsc(dept)}' AND ` : '') +
-    `route='${cqlEsc(route)}' AND type_de_pr IN ('PR','PR0','PRF')`;
+    `route IN (${inList}) AND type_de_pr IN ('PR','PR0','PRF')`;
 
   try {
     // 1) Les PK d'abord : requête rapide (~1 s), affichés immédiatement.
@@ -651,7 +659,7 @@ async function searchRoute() {
 
     // 2) Le tracé ensuite, borné à la zone des PK : ~20× plus rapide que le
     //    balayage national par attributs.
-    let rdCql = `cpx_numero='${cqlEsc(route)}'` + (dept ?
+    let rdCql = `cpx_numero IN (${inList})` + (dept ?
       ` AND (insee_commune_gauche LIKE '${cqlEsc(dept)}%' OR insee_commune_droite LIKE '${cqlEsc(dept)}%')` : '');
     if (bounds.isValid()) {
       const b = bounds.pad(0.25);
